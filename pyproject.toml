@@ -17,6 +17,7 @@ dependencies = [
     "scipy>=1.17.1",
     "packaging>=26.0",
     "setuptools>=82.0.0",
+    "pyperclip>=1.11.0",
 ]
 
 [project.scripts]

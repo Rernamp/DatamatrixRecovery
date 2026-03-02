@@ -14,7 +14,7 @@ class DataMatrixInserter:
         self.root.title("DataMatrix Value Browser")
         self.root.geometry("1400x900")
         
-        
+        # Переменные
         self.image_path = None
         self.original_image = None
         self.preview_image = None
@@ -27,11 +27,15 @@ class DataMatrixInserter:
         self.canvas_image = None
         self.drawing = False
         self.resizing = False
+        self.moving = False
         self.selected_handle = None
         self.scale_x = 1.0
         self.scale_y = 1.0
+        self.move_start_x = 0
+        self.move_start_y = 0
+        self.original_rect = None
         
-        
+        # Переменные для зума
         self.zoom_level = 1.0
         self.min_zoom = 0.1
         self.max_zoom = 5.0
@@ -43,71 +47,71 @@ class DataMatrixInserter:
         self.image_width = 0
         self.image_height = 0
         
-        
+        # Текущий DataMatrix
         self.current_dm_image = None
         self.current_dm_array = None
         self.current_data = ""
         self.last_valid_data = ""
         
-        
+        # Переменные для настройки DataMatrix
         self.rotation_angle = tk.IntVar(value=0)
         self.transparency = tk.DoubleVar(value=1.0)
         self.selected_data = tk.StringVar()
         
-        
+        # Переменные для корреляции
         self.correlation_threshold = tk.DoubleVar(value=0.7)
         self.correlation_value = 0.0
         
-        
+        # Переменные для режима перебора значений
         self.batch_results = []
         self.batch_in_progress = False
         
-        
+        # Ручки для изменения размера (четыре угла)
         self.handles = []
         self.handle_size = 8
         
-        
+        # Флаг для обновления
         self.update_pending = False
         
-        
+        # Создание интерфейса
         self.create_widgets()
         
     def create_widgets(self):
-        
+        # Главный фрейм
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         
-        
+        # Левая панель - управление
         left_panel = ttk.Frame(main_frame, width=300)
         left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         left_panel.pack_propagate(False)
         
-        
+        # Центральная панель - изображение
         center_panel = ttk.Frame(main_frame)
         center_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
         
-        
-        right_panel = ttk.Frame(main_frame, width=300)
+        # Правая панель - результаты перебора значений
+        right_panel = ttk.Frame(main_frame, width=350)
         right_panel.pack(side=tk.RIGHT, fill=tk.Y)
         right_panel.pack_propagate(False)
         
-        
-        
+        # === ЛЕВАЯ ПАНЕЛЬ ===
+        # Кнопки управления
         ttk.Button(left_panel, text="Загрузить изображение", 
                   command=self.load_image).pack(fill=tk.X, pady=5)
         
-        
+        # Список данных для перебора
         ttk.Label(left_panel, text="Список значений для перебора:", 
                  font=('Arial', 10, 'bold')).pack(pady=(10,5))
         
-        
+        # Текстовое поле для списка с поддержкой Ctrl+V
         self.data_text = scrolledtext.ScrolledText(left_panel, height=6, width=35)
         self.data_text.pack(fill=tk.X, pady=5)
-        
+        # Привязка Ctrl+V для вставки
         self.data_text.bind('<Control-v>', self.paste_to_data_text)
         self.data_text.bind('<Control-V>', self.paste_to_data_text)
         
-        
+        # Кнопки для работы со списком
         list_buttons_frame = ttk.Frame(left_panel)
         list_buttons_frame.pack(fill=tk.X, pady=2)
         
@@ -117,7 +121,7 @@ class DataMatrixInserter:
         ttk.Button(list_buttons_frame, text="Обновить список", 
                   command=self.update_dropdown_list).pack(side=tk.RIGHT, padx=2, fill=tk.X, expand=True)
         
-        
+        # Выпадающий список для выбора значения из списка
         ttk.Label(left_panel, text="Выберите значение из списка:", 
                  font=('Arial', 10)).pack(pady=(10,2), anchor=tk.W)
         
@@ -126,56 +130,56 @@ class DataMatrixInserter:
         self.data_combobox.pack(fill=tk.X, pady=2)
         self.data_combobox.bind('<<ComboboxSelected>>', self.on_data_selected)
         
-        
+        # Разделитель
         ttk.Separator(left_panel, orient='horizontal').pack(fill=tk.X, pady=10)
         
-        
+        # Текущее значение DataMatrix (ручной ввод)
         ttk.Label(left_panel, text="Ручной ввод значения:", 
                  font=('Arial', 10, 'bold')).pack(pady=(0,5))
         
-        
+        # Поле для ввода текущего значения с поддержкой Ctrl+V
         self.input_data = ttk.Entry(left_panel, width=35)
         self.input_data.pack(fill=tk.X, pady=2)
         self.input_data.bind('<KeyRelease>', self.on_data_changed)
-        
+        # Привязка Ctrl+V для вставки
         self.input_data.bind('<Control-v>', self.paste_to_input)
         self.input_data.bind('<Control-V>', self.paste_to_input)
         
-        
+        # Кнопка применения ручного ввода
         ttk.Button(left_panel, text="Применить ручной ввод", 
                   command=self.apply_manual_value).pack(fill=tk.X, pady=2)
         
-        
+        # Разделитель
         ttk.Separator(left_panel, orient='horizontal').pack(fill=tk.X, pady=10)
         
-        
+        # Настройки DataMatrix
         ttk.Label(left_panel, text="Настройки DataMatrix:", 
                  font=('Arial', 10, 'bold')).pack(pady=(0,5))
         
-        
+        # Информация о выбранной области
         self.area_info = ttk.Label(left_panel, text="Область не выбрана", foreground='gray')
         self.area_info.pack(anchor=tk.W, pady=5)
         
-        
+        # Настройки вращения
         ttk.Label(left_panel, text="Угол поворота (градусы):").pack(anchor=tk.W, pady=(5,2))
         
         rotation_frame = ttk.Frame(left_panel)
         rotation_frame.pack(fill=tk.X, pady=2)
         
-        
+        # Слайдер для вращения
         self.rotation_scale = ttk.Scale(rotation_frame, from_=0, to=359, 
                                         orient=tk.HORIZONTAL, 
                                         variable=self.rotation_angle,
                                         command=self.on_rotation_changed)
         self.rotation_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        
+        # Поле для ввода угла
         self.rotation_entry = ttk.Entry(rotation_frame, textvariable=self.rotation_angle, 
                                         width=5)
         self.rotation_entry.pack(side=tk.RIGHT, padx=(5,0))
         self.rotation_entry.bind('<KeyRelease>', self.on_rotation_changed)
         
-        
+        # Кнопки быстрого поворота
         rotation_buttons = ttk.Frame(left_panel)
         rotation_buttons.pack(fill=tk.X, pady=2)
         
@@ -188,34 +192,34 @@ class DataMatrixInserter:
         ttk.Button(rotation_buttons, text="270°", 
                   command=lambda: self.set_rotation(270)).pack(side=tk.LEFT, padx=2)
         
-        
+        # Настройки прозрачности
         ttk.Label(left_panel, text="Прозрачность:").pack(anchor=tk.W, pady=(10,2))
         
         transparency_frame = ttk.Frame(left_panel)
         transparency_frame.pack(fill=tk.X, pady=2)
         
-        
+        # Слайдер для прозрачности
         self.transparency_scale = ttk.Scale(transparency_frame, from_=0.0, to=1.0, 
                                             orient=tk.HORIZONTAL, 
                                             variable=self.transparency,
                                             command=self.on_transparency_changed)
         self.transparency_scale.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        
+        # Поле для отображения значения прозрачности
         self.transparency_label = ttk.Label(transparency_frame, text="100%", width=5)
         self.transparency_label.pack(side=tk.RIGHT, padx=(5,0))
         
-        
+        # Привязка обновления метки прозрачности
         self.transparency.trace('w', self.update_transparency_label)
         
-        
+        # Разделитель
         ttk.Separator(left_panel, orient='horizontal').pack(fill=tk.X, pady=10)
         
-        
+        # Управление зумом
         zoom_frame = ttk.LabelFrame(left_panel, text="Управление масштабом", padding="5")
         zoom_frame.pack(fill=tk.X, pady=5)
         
-        
+        # Кнопки зума
         zoom_buttons = ttk.Frame(zoom_frame)
         zoom_buttons.pack(fill=tk.X, pady=2)
         
@@ -228,98 +232,99 @@ class DataMatrixInserter:
         ttk.Button(zoom_buttons, text="Fit", width=5, 
                   command=self.zoom_fit).pack(side=tk.LEFT, padx=2)
         
-        
+        # Информация о зуме
         self.zoom_info = ttk.Label(zoom_frame, text="Масштаб: 100%", foreground='blue')
         self.zoom_info.pack(pady=2)
         
-        
+        # Инструкция по навигации
         nav_info = ttk.Label(zoom_frame, 
                             text="Средняя кнопка мыши - перемещение\n"
                                  "Ctrl + колесо - масштабирование\n"
-                                 "Перетаскивайте угловые маркеры для изменения области", 
+                                 "Перетаскивайте углы для изменения размера\n"
+                                 "Перетаскивайте область для перемещения", 
                             foreground='gray', justify=tk.LEFT)
         nav_info.pack(pady=2)
         
-        
+        # Фрейм для предпросмотра текущего DataMatrix
         preview_frame = ttk.LabelFrame(left_panel, text="Предпросмотр", padding="5")
         preview_frame.pack(fill=tk.BOTH, pady=10, expand=True)
         
-        
+        # Канва для предпросмотра
         self.preview_canvas = tk.Canvas(preview_frame, width=200, height=200, bg='white')
         self.preview_canvas.pack()
         
-        
+        # Информация о текущих настройках
         self.info_label = ttk.Label(preview_frame, text="", foreground='blue', wraplength=280)
         self.info_label.pack(pady=5)
         
-        
-        
+        # === ЦЕНТРАЛЬНАЯ ПАНЕЛЬ ===
+        # Канва для изображения
         self.canvas = tk.Canvas(center_panel, bg='gray', highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         
-        
-        
+        # === ПРАВАЯ ПАНЕЛЬ ===
+        # Фрейм для результатов перебора значений
         results_frame = ttk.LabelFrame(right_panel, text="Результаты перебора значений", padding="5")
         results_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        
+        # Кнопка запуска перебора
         self.batch_button = ttk.Button(results_frame, text="Перебрать все значения из списка", 
                                        command=self.start_value_browsing)
         self.batch_button.pack(fill=tk.X, pady=5)
         
-        
+        # Кнопка остановки
         self.stop_batch_button = ttk.Button(results_frame, text="Остановить", 
                                            command=self.stop_value_browsing, state=tk.DISABLED)
         self.stop_batch_button.pack(fill=tk.X, pady=2)
         
-        
+        # Прогресс перебора
         self.batch_progress = ttk.Progressbar(results_frame, mode='determinate')
         self.batch_progress.pack(fill=tk.X, pady=2)
         
         self.batch_status = ttk.Label(results_frame, text="Готов к перебору", foreground='gray')
         self.batch_status.pack(pady=2)
         
-        
+        # Информация о текущем состоянии
         self.debug_info = ttk.Label(results_frame, text="", foreground='blue', wraplength=280)
         self.debug_info.pack(pady=2)
         
-        
+        # Canvas с прокруткой для результатов
         results_canvas_frame = ttk.Frame(results_frame)
         results_canvas_frame.pack(fill=tk.BOTH, expand=True, pady=5)
         
-        
+        # Вертикальный скроллбар
         results_scrollbar = ttk.Scrollbar(results_canvas_frame)
         results_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        
+        # Canvas для результатов
         self.results_canvas = tk.Canvas(results_canvas_frame, yscrollcommand=results_scrollbar.set,
                                         bg='white', highlightthickness=0)
         self.results_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
         results_scrollbar.config(command=self.results_canvas.yview)
         
-        
+        # Фрейм внутри canvas для размещения результатов
         self.results_frame = ttk.Frame(self.results_canvas)
         self.results_canvas.create_window((0, 0), window=self.results_frame, anchor=tk.NW)
         
-        
+        # Привязка события изменения размера
         self.results_frame.bind('<Configure>', self.on_results_frame_configure)
         
-        
+        # Список виджетов результатов
         self.result_widgets = []
         
-        
+        # Привязка событий мыши для центральной канвы
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_move)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
         
-        
+        # События для зума и панорамирования
         self.canvas.bind("<ButtonPress-2>", self.on_pan_start)
         self.canvas.bind("<B2-Motion>", self.on_pan_move)
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         self.canvas.bind("<Control-MouseWheel>", self.on_zoom_mousewheel)
         
-        
+        # Статус бар
         self.status_var = tk.StringVar()
         self.status_var.set("Готов к работе")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, 
@@ -334,11 +339,11 @@ class DataMatrixInserter:
         """Вставка текста из буфера обмена в поле списка данных"""
         try:
             clipboard_text = self.root.clipboard_get()
-            
+            # Вставляем текст в текущую позицию курсора
             self.data_text.insert(tk.INSERT, clipboard_text)
-            self.update_dropdown_list()  
+            self.update_dropdown_list()  # Автоматически обновляем выпадающий список
             self.status_var.set("Текст вставлен в список значений")
-            return "break"  
+            return "break"  # Предотвращаем дальнейшую обработку события
         except Exception as e:
             self.status_var.set(f"Ошибка вставки: {str(e)}")
             return "break"
@@ -347,11 +352,11 @@ class DataMatrixInserter:
         """Вставка текста из буфера обмена в поле ввода"""
         try:
             clipboard_text = self.root.clipboard_get()
-            
+            # Вставляем текст в текущую позицию курсора
             self.input_data.insert(tk.INSERT, clipboard_text)
-            self.on_data_changed()  
+            self.on_data_changed()  # Обновляем DataMatrix
             self.status_var.set("Текст вставлен в поле ручного ввода")
-            return "break"  
+            return "break"  # Предотвращаем дальнейшую обработку события
         except Exception as e:
             self.status_var.set(f"Ошибка вставки: {str(e)}")
             return "break"
@@ -405,7 +410,7 @@ class DataMatrixInserter:
             messagebox.showwarning("Предупреждение", "Не выбрана область на изображении")
             return
             
-        
+        # Получаем список данных
         data_text = self.data_text.get('1.0', tk.END).strip()
         if not data_text:
             messagebox.showwarning("Предупреждение", "Нет данных для перебора")
@@ -423,10 +428,10 @@ class DataMatrixInserter:
         print(f"Угол поворота: {self.rotation_angle.get()}")
         print("=" * 50)
         
-        
+        # Очищаем только виджеты, но НЕ ОЧИЩАЕМ batch_results
         self.clear_results_widgets()
         
-        
+        # Запускаем перебор в отдельном потоке
         self.batch_in_progress = True
         self.batch_button.config(state=tk.DISABLED)
         self.stop_batch_button.config(state=tk.NORMAL)
@@ -450,13 +455,13 @@ class DataMatrixInserter:
         """Поток для перебора значений"""
         try:
             x1, y1, x2, y2 = self.rect_coords
-            size = min(x2 - x1, y2 - y1)  
+            size = min(x2 - x1, y2 - y1)  # Берем минимальный размер для квадратной области
             roi = self.original_image[y1:y1+size, x1:x1+size]
             
             print(f"Размер области: {size}x{size}")
             print(f"Форма ROI: {roi.shape}")
             
-            
+            # Подготавливаем ROI для корреляции
             if len(roi.shape) == 3:
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
                 print("ROI конвертирован в оттенки серого")
@@ -477,33 +482,33 @@ class DataMatrixInserter:
                 print(f"\n--- Обработка {i+1}/{total} ---")
                 print(f"Данные: {data}")
                     
-                
+                # Создаем DataMatrix для текущего значения
                 dm_image = self.create_datamatrix_binary(data, size, self.rotation_angle.get())
                 
                 if dm_image:
                     print(f"DataMatrix создан успешно, размер: {dm_image.size}")
                     
-                    
+                    # Конвертируем в бинарный массив
                     dm_binary = np.array(dm_image.convert('L'))
                     print(f"DM массив форма: {dm_binary.shape}")
                     
                     dm_binary = self.discretize_image(dm_binary)
                     
-                    
+                    # Вычисляем корреляцию
                     correlation = self.normalized_correlation(roi_binary, dm_binary)
                     print(f"Корреляция: {correlation:.4f}")
                     
-                    
+                    # Сохраняем результат
                     result = {
                         'data': data,
                         'correlation': correlation,
-                        'preview': self.create_datamatrix(data, 64)  
+                        'preview': self.create_datamatrix(data, 64)  # Маленький предпросмотр
                     }
                     results.append(result)
                 else:
                     print(f"ОШИБКА: Не удалось создать DataMatrix для {data}")
                 
-                
+                # Обновляем прогресс
                 progress = int((i + 1) / total * 100)
                 self.root.after(0, self.update_batch_progress, progress, i + 1, total)
             
@@ -514,11 +519,11 @@ class DataMatrixInserter:
                 for j, r in enumerate(results[:3]):
                     print(f"  {j+1}. {r['data'][:20]}... - {r['correlation']:.4f}")
             
-            
+            # Сортируем результаты по убыванию корреляции
             results.sort(key=lambda x: x['correlation'], reverse=True)
             self.batch_results = results
             
-            
+            # Отображаем результаты в главном потоке
             self.root.after(0, self.display_batch_results)
             
         except Exception as e:
@@ -559,7 +564,7 @@ class DataMatrixInserter:
         self.result_widgets.clear()
         print(f"После очистки виджетов: {len(self.result_widgets)}")
         
-        
+        # Очищаем фрейм результатов
         for widget in self.results_frame.winfo_children():
             widget.destroy()
         
@@ -568,12 +573,12 @@ class DataMatrixInserter:
         print(f"\n=== ОТОБРАЖЕНИЕ РЕЗУЛЬТАТОВ ===")
         print(f"Количество результатов в self.batch_results: {len(self.batch_results)}")
         
-        
+        # Очищаем только виджеты, НО НЕ ОЧИЩАЕМ batch_results
         self.clear_results_widgets()
         
         if len(self.batch_results) == 0:
             print("НЕТ РЕЗУЛЬТАТОВ для отображения")
-            
+            # Показываем сообщение, что нет результатов
             no_results_label = ttk.Label(self.results_frame, 
                                         text="Нет результатов.\nПроверьте консоль для отладки", 
                                         foreground='gray', justify=tk.CENTER)
@@ -586,20 +591,20 @@ class DataMatrixInserter:
         for i, result in enumerate(self.batch_results):
             print(f"Создание элемента {i+1} для: {result['data'][:20]}...")
             
-            
+            # Создаем фрейм для каждого результата
             item_frame = ttk.Frame(self.results_frame, relief=tk.RIDGE, borderwidth=1)
             item_frame.pack(fill=tk.X, padx=2, pady=2)
             
-            
+            # Привязываем событие клика на весь фрейм
             item_frame.bind('<Button-1>', lambda e, idx=i: self.on_result_selected(idx))
             
-            
+            # Миниатюра DataMatrix
             preview = result['preview']
             if preview:
                 try:
                     preview_tk = ImageTk.PhotoImage(preview)
                     preview_label = ttk.Label(item_frame, image=preview_tk)
-                    preview_label.image = preview_tk  
+                    preview_label.image = preview_tk  # Сохраняем ссылку!
                     preview_label.pack(side=tk.LEFT, padx=5, pady=5)
                     preview_label.bind('<Button-1>', lambda e, idx=i: self.on_result_selected(idx))
                     print(f"  Миниатюра создана")
@@ -608,12 +613,12 @@ class DataMatrixInserter:
             else:
                 print(f"  Нет preview для результата")
             
-            
+            # Информация о результате
             info_frame = ttk.Frame(item_frame)
             info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=5)
             info_frame.bind('<Button-1>', lambda e, idx=i: self.on_result_selected(idx))
             
-            
+            # Данные (обрезаем если длинные)
             data_text = result['data']
             if len(data_text) > 25:
                 display_data = data_text[:22] + '...'
@@ -625,7 +630,7 @@ class DataMatrixInserter:
             data_label.pack(anchor=tk.W)
             data_label.bind('<Button-1>', lambda e, idx=i: self.on_result_selected(idx))
             
-            
+            # Корреляция
             percent = int(result['correlation'] * 100)
             color = 'green' if result['correlation'] >= self.correlation_threshold.get() else 'red'
             corr_label = ttk.Label(info_frame, text=f"Похожесть: {percent}%", 
@@ -633,49 +638,75 @@ class DataMatrixInserter:
             corr_label.pack(anchor=tk.W)
             corr_label.bind('<Button-1>', lambda e, idx=i: self.on_result_selected(idx))
             
+            # Фрейм для кнопок
+            buttons_frame = ttk.Frame(info_frame)
+            buttons_frame.pack(fill=tk.X, pady=2)
+            
+            # Кнопка копирования значения
+            copy_btn = ttk.Button(buttons_frame, text="📋 Копировать", 
+                                 command=lambda idx=i: self.copy_value(idx))
+            copy_btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+            
             self.result_widgets.append(item_frame)
             print(f"  Элемент {i+1} добавлен в список виджетов")
         
         print(f"Всего виджетов в списке: {len(self.result_widgets)}")
         
-        
+        # Обновляем область прокрутки
         self.results_canvas.configure(scrollregion=self.results_canvas.bbox("all"))
         self.batch_status.config(text=f"Найдено {len(self.batch_results)} результатов", foreground='green')
         self.debug_info.config(text=f"Отображено {len(self.batch_results)} результатов")
         
-        
+        # Принудительно обновляем интерфейс
         self.results_frame.update_idletasks()
         self.results_canvas.update_idletasks()
         print("=== ОТОБРАЖЕНИЕ ЗАВЕРШЕНО ===\n")
+        
+    def copy_value(self, index):
+        """Копирование значения результата в буфер обмена"""
+        if index < 0 or index >= len(self.batch_results):
+            return
+            
+        result = self.batch_results[index]
+        value = result['data']
+        
+        try:
+            # Копируем в буфер обмена
+            self.root.clipboard_clear()
+            self.root.clipboard_append(value)
+            # Обновляем статус
+            self.status_var.set(f"Значение скопировано: {value[:30]}...")
+        except Exception as e:
+            self.status_var.set(f"Ошибка копирования: {str(e)}")
         
     def on_result_selected(self, index):
         """Обработка выбора результата из списка"""
         if index < 0 or index >= len(self.batch_results):
             return
             
-        
+        # Подсвечиваем выбранный элемент
         for i, widget in enumerate(self.result_widgets):
             if i == index:
                 widget.config(style='Selected.TFrame')
             else:
                 widget.config(style='TFrame')
         
-        
+        # Создаем стиль для выделения
         style = ttk.Style()
         style.configure('Selected.TFrame', background='lightblue')
         
         result = self.batch_results[index]
         
-        
+        # Устанавливаем данные в поле ввода
         self.input_data.delete(0, tk.END)
         self.input_data.insert(0, result['data'])
         
-        
+        # Обновляем предпросмотр
         self.current_data = result['data']
         self.create_current_datamatrix()
         self.update_live_preview()
         
-        
+        # Обновляем корреляцию
         self.correlation_value = result['correlation']
         self.update_correlation_display()
         
@@ -690,31 +721,31 @@ class DataMatrixInserter:
             return 0.0
             
         x1, y1, x2, y2 = self.rect_coords
-        size = min(x2 - x1, y2 - y1)  
+        size = min(x2 - x1, y2 - y1)  # Берем минимальный размер для квадратной области
         
         if size <= 0:
             return 0.0
             
-        
+        # Извлекаем выделенную область (квадратную)
         roi = self.original_image[y1:y1+size, x1:x1+size]
         
-        
+        # Создаем DataMatrix без наложения (чистый код)
         dm_image = self.create_datamatrix_binary(self.current_data, size, self.rotation_angle.get())
         
         if dm_image is None:
             return 0.0
             
-        
+        # Конвертируем ROI в оттенки серого
         if len(roi.shape) == 3:
             roi_gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
         else:
             roi_gray = roi
             
-        
+        # Дискретизация изображений для улучшения корреляции
         roi_binary = self.discretize_image(roi_gray)
         dm_binary = self.discretize_image(np.array(dm_image.convert('L')))
         
-        
+        # Вычисляем нормализованную корреляцию
         correlation = self.normalized_correlation(roi_binary, dm_binary)
         
         self.correlation_value = correlation
@@ -729,9 +760,9 @@ class DataMatrixInserter:
     
     def normalized_correlation(self, img1, img2):
         """Вычисление нормализованной корреляции между двумя изображениями"""
-        
+        # Убеждаемся, что изображения одинакового размера
         if img1.shape != img2.shape:
-            
+            # Изменяем размер второго изображения под первое
             img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
             
         img1_norm = img1.astype(np.float32) / 255.0
@@ -747,7 +778,7 @@ class DataMatrixInserter:
             return 0
             
         correlation = numerator / denominator
-        
+        # Нормализуем от 0 до 1
         correlation = (correlation + 1) / 2
         return max(0, min(1, correlation))
     
@@ -798,7 +829,7 @@ class DataMatrixInserter:
         """Обновление отображения информации о корреляции"""
         percent = int(self.correlation_value * 100)
         
-        
+        # Цветовая индикация в зависимости от порога
         threshold = self.correlation_threshold.get()
         
         if self.correlation_value >= threshold:
@@ -806,7 +837,7 @@ class DataMatrixInserter:
         else:
             status_text = f"Похожесть: {percent}% ✗"
             
-        
+        # Обновляем информацию в статус баре
         if self.current_data:
             self.status_var.set(f"Текущее: {self.current_data[:30]}... {status_text}")
         else:
@@ -842,7 +873,7 @@ class DataMatrixInserter:
         """Обработка изменения прозрачности"""
         self.update_live_preview()
     
-    
+    # Методы для зума
     def zoom_in(self):
         self.zoom_level = min(self.max_zoom, self.zoom_level + self.zoom_step)
         self.update_zoom_display()
@@ -937,35 +968,37 @@ class DataMatrixInserter:
                 self.draw_rectangle_and_handles()
     
     def draw_rectangle_and_handles(self):
-        """Отрисовка прямоугольника и двух угловых ручек"""
+        """Отрисовка прямоугольника и четырех угловых ручек"""
         if not self.rect_coords:
             return
             
         x1, y1, x2, y2 = self.rect_coords
         
-        
+        # Конвертируем в координаты канвы с учетом зума
         canvas_x1 = x1 / self.scale_x
         canvas_y1 = y1 / self.scale_y
         canvas_x2 = x2 / self.scale_x
         canvas_y2 = y2 / self.scale_y
         
-        
+        # Удаляем старый прямоугольник и ручки
         if self.rect:
             self.canvas.delete(self.rect)
         for handle in self.handles:
             self.canvas.delete(handle)
         self.handles.clear()
         
-        
+        # Рисуем новый прямоугольник
         self.rect = self.canvas.create_rectangle(
             canvas_x1, canvas_y1, canvas_x2, canvas_y2,
             outline='red', width=2, dash=(5, 3)
         )
         
-        
+        # Рисуем четыре ручки по углам
         handle_positions = [
-            ('nw', canvas_x1, canvas_y1),  
-            ('se', canvas_x2, canvas_y2),  
+            ('nw', canvas_x1, canvas_y1),  # левый верхний
+            ('ne', canvas_x2, canvas_y1),  # правый верхний
+            ('se', canvas_x2, canvas_y2),  # правый нижний
+            ('sw', canvas_x1, canvas_y2),  # левый нижний
         ]
         
         for handle_id, x, y in handle_positions:
@@ -988,10 +1021,12 @@ class DataMatrixInserter:
         canvas_x2 = x2 / self.scale_x
         canvas_y2 = y2 / self.scale_y
         
-        
+        # Проверяем четыре ручки
         handle_positions = [
-            ('nw', canvas_x1, canvas_y1),  
-            ('se', canvas_x2, canvas_y2),  
+            ('nw', canvas_x1, canvas_y1),  # левый верхний
+            ('ne', canvas_x2, canvas_y1),  # правый верхний
+            ('se', canvas_x2, canvas_y2),  # правый нижний
+            ('sw', canvas_x1, canvas_y2),  # левый нижний
         ]
         
         for handle_id, hx, hy in handle_positions:
@@ -1000,12 +1035,34 @@ class DataMatrixInserter:
                 return handle_id
         return None
     
+    def is_point_inside_rect(self, x, y):
+        """Проверяет, находится ли точка внутри прямоугольника"""
+        if not self.rect_coords:
+            return False
+            
+        x1, y1, x2, y2 = self.rect_coords
+        canvas_x1 = x1 / self.scale_x
+        canvas_y1 = y1 / self.scale_y
+        canvas_x2 = x2 / self.scale_x
+        canvas_y2 = y2 / self.scale_y
+        
+        # Нормализуем координаты
+        left = min(canvas_x1, canvas_x2)
+        right = max(canvas_x1, canvas_x2)
+        top = min(canvas_y1, canvas_y2)
+        bottom = max(canvas_y1, canvas_y2)
+        
+        # Проверяем с отступом, чтобы не перекрываться с ручками
+        margin = self.handle_size + 2
+        return (left + margin <= x <= right - margin and 
+                top + margin <= y <= bottom - margin)
+    
     def on_mouse_down(self, event):
         if self.display_image_obj:
             x = self.canvas.canvasx(event.x)
             y = self.canvas.canvasy(event.y)
             
-            
+            # Проверяем, не попали ли на ручку изменения размера
             handle = self.get_handle_at_position(x, y)
             if handle:
                 self.resizing = True
@@ -1014,6 +1071,15 @@ class DataMatrixInserter:
                 self.start_y = y
                 self.original_rect = self.rect_coords
                 print(f"Начало изменения размера за ручку: {handle}")
+            
+            # Проверяем, не попали ли внутрь прямоугольника для перемещения
+            elif self.is_point_inside_rect(x, y):
+                self.moving = True
+                self.move_start_x = x
+                self.move_start_y = y
+                self.original_rect = self.rect_coords
+                print("Начало перемещения области")
+            
             else:
                 self.drawing = True
                 self.start_x = x
@@ -1034,49 +1100,138 @@ class DataMatrixInserter:
             cur_y = self.canvas.canvasy(event.y)
             self.canvas.coords(self.rect, self.start_x, self.start_y, cur_x, cur_y)
             
-        elif self.resizing and self.selected_handle and self.original_rect:
+        elif self.moving and self.original_rect:
             cur_x = self.canvas.canvasx(event.x)
             cur_y = self.canvas.canvasy(event.y)
             
+            # Вычисляем смещение
+            dx = cur_x - self.move_start_x
+            dy = cur_y - self.move_start_y
             
+            # Получаем оригинальные координаты в канве
             x1, y1, x2, y2 = self.original_rect
-            
-            
             canvas_x1 = x1 / self.scale_x
             canvas_y1 = y1 / self.scale_y
             canvas_x2 = x2 / self.scale_x
             canvas_y2 = y2 / self.scale_y
             
+            # Новые координаты
+            new_x1 = canvas_x1 + dx
+            new_y1 = canvas_y1 + dy
+            new_x2 = canvas_x2 + dx
+            new_y2 = canvas_y2 + dy
             
+            # Проверяем границы изображения
+            if new_x1 < 0:
+                new_x1 = 0
+                new_x2 = canvas_x2 - canvas_x1
+            if new_y1 < 0:
+                new_y1 = 0
+                new_y2 = canvas_y2 - canvas_y1
+            if new_x2 > self.canvas_width:
+                new_x2 = self.canvas_width
+                new_x1 = self.canvas_width - (canvas_x2 - canvas_x1)
+            if new_y2 > self.canvas_height:
+                new_y2 = self.canvas_height
+                new_y1 = self.canvas_height - (canvas_y2 - canvas_y1)
+            
+            # Обновляем прямоугольник
+            self.canvas.coords(self.rect, new_x1, new_y1, new_x2, new_y2)
+            
+            # Обновляем ручки
+            for handle in self.handles:
+                self.canvas.delete(handle)
+            self.handles.clear()
+            
+            # Рисуем новые ручки
+            handle_positions = [
+                ('nw', new_x1, new_y1),
+                ('ne', new_x2, new_y1),
+                ('se', new_x2, new_y2),
+                ('sw', new_x1, new_y2),
+            ]
+            
+            for handle_id, hx, hy in handle_positions:
+                handle = self.canvas.create_rectangle(
+                    hx - self.handle_size/2, hy - self.handle_size/2,
+                    hx + self.handle_size/2, hy + self.handle_size/2,
+                    fill='white', outline='red', width=2
+                )
+                self.handles.append(handle)
+            
+        elif self.resizing and self.selected_handle and self.original_rect:
+            cur_x = self.canvas.canvasx(event.x)
+            cur_y = self.canvas.canvasy(event.y)
+            
+            # Получаем координаты оригинального прямоугольника
+            x1, y1, x2, y2 = self.original_rect
+            
+            # Преобразуем в координаты канвы
+            canvas_x1 = x1 / self.scale_x
+            canvas_y1 = y1 / self.scale_y
+            canvas_x2 = x2 / self.scale_x
+            canvas_y2 = y2 / self.scale_y
+            
+            # Обновляем координаты в зависимости от выбранной ручки
             if self.selected_handle == 'nw':
-                
+                # Левый верхний угол двигается, правый нижний фиксирован
                 new_x1 = cur_x
                 new_y1 = cur_y
                 new_x2 = canvas_x2
                 new_y2 = canvas_y2
                 
-            elif self.selected_handle == 'se':
+            elif self.selected_handle == 'ne':
+                # Правый верхний угол двигается, левый нижний фиксирован
+                new_x1 = canvas_x1
+                new_y1 = cur_y
+                new_x2 = cur_x
+                new_y2 = canvas_y2
                 
+            elif self.selected_handle == 'se':
+                # Правый нижний угол двигается, левый верхний фиксирован
                 new_x1 = canvas_x1
                 new_y1 = canvas_y1
                 new_x2 = cur_x
                 new_y2 = cur_y
                 
+            elif self.selected_handle == 'sw':
+                # Левый нижний угол двигается, правый верхний фиксирован
+                new_x1 = cur_x
+                new_y1 = canvas_y1
+                new_x2 = canvas_x2
+                new_y2 = cur_y
+                
             else:
                 return
             
+            # Проверяем минимальный размер
+            if abs(new_x2 - new_x1) < 10 or abs(new_y2 - new_y1) < 10:
+                return
             
+            # Проверяем границы изображения
+            if new_x1 < 0:
+                new_x1 = 0
+            if new_y1 < 0:
+                new_y1 = 0
+            if new_x2 > self.canvas_width:
+                new_x2 = self.canvas_width
+            if new_y2 > self.canvas_height:
+                new_y2 = self.canvas_height
+            
+            # Обновляем прямоугольник
             self.canvas.coords(self.rect, new_x1, new_y1, new_x2, new_y2)
             
-            
+            # Обновляем ручки
             for handle in self.handles:
                 self.canvas.delete(handle)
             self.handles.clear()
             
-            
+            # Рисуем новые ручки
             handle_positions = [
                 ('nw', new_x1, new_y1),
+                ('ne', new_x2, new_y1),
                 ('se', new_x2, new_y2),
+                ('sw', new_x1, new_y2),
             ]
             
             for handle_id, hx, hy in handle_positions:
@@ -1099,12 +1254,15 @@ class DataMatrixInserter:
                 x2 = int(max(self.start_x, end_x) * self.scale_x)
                 y2 = int(max(self.start_y, end_y) * self.scale_y)
                 
-                
+                # Проверяем границы
                 x1 = max(0, min(x1, self.image_width))
                 y1 = max(0, min(y1, self.image_height))
                 x2 = max(0, min(x2, self.image_width))
                 y2 = max(0, min(y2, self.image_height))
                 
+                # Проверяем минимальный размер
+                if abs(x2 - x1) < 10 or abs(y2 - y1) < 10:
+                    return
                 
                 self.rect_coords = (x1, y1, x2, y2)
                 width = x2 - x1
@@ -1117,27 +1275,37 @@ class DataMatrixInserter:
                     self.update_live_preview()
                     self.calculate_correlation()
                 
-        elif self.resizing:
-            self.resizing = False
+        elif self.moving or self.resizing:
+            # Завершаем перемещение или изменение размера
+            if self.moving:
+                self.moving = False
+                print("Завершение перемещения области")
+            elif self.resizing:
+                self.resizing = False
+                print("Завершение изменения размера")
             
             if self.rect_coords and self.display_image_obj:
-                
+                # Получаем текущие координаты прямоугольника в канве
                 canvas_coords = self.canvas.coords(self.rect)
                 if canvas_coords:
                     canvas_x1, canvas_y1, canvas_x2, canvas_y2 = canvas_coords
                     
-                    
+                    # Конвертируем обратно в координаты изображения
                     x1 = int(canvas_x1 * self.scale_x)
                     y1 = int(canvas_y1 * self.scale_y)
                     x2 = int(canvas_x2 * self.scale_x)
                     y2 = int(canvas_y2 * self.scale_y)
                     
-                    
+                    # Проверяем границы
                     x1 = max(0, min(x1, self.image_width))
                     y1 = max(0, min(y1, self.image_height))
                     x2 = max(0, min(x2, self.image_width))
                     y2 = max(0, min(y2, self.image_height))
                     
+                    # Проверяем минимальный размер
+                    if abs(x2 - x1) < 10 or abs(y2 - y1) < 10:
+                        # Восстанавливаем исходный размер
+                        x1, y1, x2, y2 = self.original_rect
                     
                     self.rect_coords = (x1, y1, x2, y2)
                     width = x2 - x1
@@ -1148,7 +1316,7 @@ class DataMatrixInserter:
                     if self.current_data:
                         self.update_live_preview()
                         self.calculate_correlation()
-                        
+            
             self.selected_handle = None
             self.original_rect = None
     
@@ -1195,7 +1363,7 @@ class DataMatrixInserter:
             
             img = Image.fromarray(new_pixels, 'RGBA')
             
-            
+            # Изменяем размер с сохранением пропорций для прямоугольной области
             img = img.resize((size, size), Image.Resampling.NEAREST)
             
             if self.rotation_angle.get() != 0:
@@ -1241,14 +1409,14 @@ class DataMatrixInserter:
         x1, y1, x2, y2 = self.rect_coords
         width = x2 - x1
         height = y2 - y1
-        size = min(width, height)  
+        size = min(width, height)  # Для DataMatrix используем минимальный размер (квадрат)
         
         if size <= 0:
             return
             
         self.preview_image = self.original_image.copy()
         
-        
+        # Создаем DataMatrix квадратного размера
         dm_image = self.create_datamatrix(self.current_data, size)
         
         if dm_image:
@@ -1261,11 +1429,11 @@ class DataMatrixInserter:
             
             dm_array = np.array(dm_image)
             
-            
+            # Центрируем DataMatrix в прямоугольной области
             x_offset = x1 + (width - size) // 2
             y_offset = y1 + (height - size) // 2
             
-            
+            # Наложение с учетом прозрачности
             for c in range(3):
                 alpha = dm_array[:, :, 3] / 255.0
                 preview_rgba[y_offset:y_offset+size, x_offset:x_offset+size, c] = \

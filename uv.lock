@@ -71,6 +71,7 @@ dependencies = [
     { name = "packaging" },
     { name = "pillow" },
     { name = "pylibdmtx" },
+    { name = "pyperclip" },
     { name = "scipy" },
     { name = "setuptools" },
 ]
@@ -93,6 +94,7 @@ requires-dist = [
     { name = "packaging", specifier = ">=26.0" },
     { name = "pillow", specifier = ">=10.0.0" },
     { name = "pylibdmtx", specifier = ">=0.1.10" },
+    { name = "pyperclip", specifier = ">=1.11.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1.0" },
     { name = "scipy", specifier = ">=1.17.1" },
@@ -476,6 +478,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/c7/49c464cbee2a7ee33132db45ee01cf52403ae1c49267d53e735726cee55d/pylibdmtx-0.1.10-py2.py3-none-any.whl", hash = "sha256:ab73df28b64b3f5e29f22e6937b93967eb77ae7fcd5be381e1142f5a7268eb9e", size = 23191, upload-time = "2022-03-15T14:40:40.176Z" },
     { url = "https://files.pythonhosted.org/packages/b9/57/74d28fba3205a76cd3e4c16d693da54b21a10df6a28fb688f7100c153d15/pylibdmtx-0.1.10-py2.py3-none-win32.whl", hash = "sha256:2adb8dd71bd138159f6433dafd8eec7420eef97aaf8e51cf0f4fdd976f109962", size = 58108, upload-time = "2022-03-15T14:40:42.742Z" },
     { url = "https://files.pythonhosted.org/packages/c1/4b/d3fb82bd33d3b8bc0143f17c69660f99f830bd7326d0a09c3c1e1cc01771/pylibdmtx-0.1.10-py2.py3-none-win_amd64.whl", hash = "sha256:e8b0140ab5f473c67fa4335333994a99ea9f683888ae892b1af2dc045560331b", size = 65735, upload-time = "2022-03-15T14:40:44.772Z" },
+]
+
+[[package]]
+name = "pyperclip"
+version = "1.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/52/d87eba7cb129b81563019d1679026e7a112ef76855d6159d24754dbd2a51/pyperclip-1.11.0.tar.gz", hash = "sha256:244035963e4428530d9e3a6101a1ef97209c6825edab1567beac148ccc1db1b6", size = 12185, upload-time = "2025-09-26T14:40:37.245Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/80/fc9d01d5ed37ba4c42ca2b55b4339ae6e200b456be3a1aaddf4a9fa99b8c/pyperclip-1.11.0-py3-none-any.whl", hash = "sha256:299403e9ff44581cb9ba2ffeed69c7aa96a008622ad0c46cb575ca75b5b84273", size = 11063, upload-time = "2025-09-26T14:40:36.069Z" },
 ]
 
 [[package]]
