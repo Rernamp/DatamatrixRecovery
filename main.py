@@ -404,6 +404,36 @@ class DataMatrixInserter:
         else:
             messagebox.showwarning("Предупреждение", "Введите значение для применения")
     
+    def on_data_changed(self, event=None):
+        """Обработка изменения данных в поле ввода"""
+        data = self.input_data.get().strip()
+        if data:
+            self.current_data = data
+            self.last_valid_data = data
+            self.create_current_datamatrix()
+            self.update_live_preview()
+            self.calculate_correlation()
+    
+    def on_rotation_changed(self, event=None):
+        """Обработка изменения угла поворота"""
+        self.update_live_preview()
+        if self.current_data:
+            self.calculate_correlation()
+    
+    def on_transparency_changed(self, event=None):
+        """Обработка изменения прозрачности"""
+        self.update_live_preview()
+    
+    def set_rotation(self, angle):
+        """Установка угла поворота"""
+        self.rotation_angle.set(angle)
+        self.on_rotation_changed()
+        
+    def update_transparency_label(self, *args):
+        """Обновление метки прозрачности"""
+        percent = int(self.transparency.get() * 100)
+        self.transparency_label.config(text=f"{percent}%")
+    
     def start_value_browsing(self):
         """Запуск перебора всех значений из списка"""
         if self.original_image is None or self.rect_coords is None:
@@ -456,12 +486,14 @@ class DataMatrixInserter:
         try:
             x1, y1, x2, y2 = self.rect_coords
             size = min(x2 - x1, y2 - y1)  # Берем минимальный размер для квадратной области
+            
+            # Извлекаем выделенную область (квадратную)
             roi = self.original_image[y1:y1+size, x1:x1+size]
             
             print(f"Размер области: {size}x{size}")
             print(f"Форма ROI: {roi.shape}")
             
-            # Подготавливаем ROI для корреляции
+            # Подготавливаем ROI для корреляции - переводим в бинарное изображение
             if len(roi.shape) == 3:
                 roi_gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
                 print("ROI конвертирован в оттенки серого")
@@ -481,32 +513,36 @@ class DataMatrixInserter:
                 
                 print(f"\n--- Обработка {i+1}/{total} ---")
                 print(f"Данные: {data}")
-                    
-                # Создаем DataMatrix для текущего значения
-                dm_image = self.create_datamatrix_binary(data, size, self.rotation_angle.get())
                 
-                if dm_image:
-                    print(f"DataMatrix создан успешно, размер: {dm_image.size}")
+                # Для корреляции используем обрезанную версию (без белых полей)
+                # Но сначала нам нужно получить изображение с черными модулями на белом фоне
+                dm_trimmed = self.create_trimmed_datamatrix_for_correlation(data, self.rotation_angle.get())
+                
+                if dm_trimmed:
+                    # Изменяем размер обрезанного DM до размера ROI
+                    dm_resized = dm_trimmed.resize((size, size), Image.Resampling.NEAREST)
+                    print(f"  Обрезанный DataMatrix изменен до размера: {dm_resized.size}")
                     
                     # Конвертируем в бинарный массив
-                    dm_binary = np.array(dm_image.convert('L'))
-                    print(f"DM массив форма: {dm_binary.shape}")
-                    
+                    dm_binary = np.array(dm_resized.convert('L'))
                     dm_binary = self.discretize_image(dm_binary)
                     
                     # Вычисляем корреляцию
                     correlation = self.normalized_correlation(roi_binary, dm_binary)
-                    print(f"Корреляция: {correlation:.4f}")
+                    print(f"  Корреляция: {correlation:.4f}")
+                    
+                    # Создаем preview для отображения
+                    preview_image = self.create_datamatrix_trimmed(data, 64)
                     
                     # Сохраняем результат
                     result = {
                         'data': data,
                         'correlation': correlation,
-                        'preview': self.create_datamatrix(data, 64)  # Маленький предпросмотр
+                        'preview': preview_image
                     }
                     results.append(result)
                 else:
-                    print(f"ОШИБКА: Не удалось создать DataMatrix для {data}")
+                    print(f"  ОШИБКА: Не удалось создать DataMatrix для {data}")
                 
                 # Обновляем прогресс
                 progress = int((i + 1) / total * 100)
@@ -607,7 +643,7 @@ class DataMatrixInserter:
                     preview_label.image = preview_tk  # Сохраняем ссылку!
                     preview_label.pack(side=tk.LEFT, padx=5, pady=5)
                     preview_label.bind('<Button-1>', lambda e, idx=i: self.on_result_selected(idx))
-                    print(f"  Миниатюра создана")
+                    print(f"  Миниатюра создана, размер: {preview.size}")
                 except Exception as e:
                     print(f"  Ошибка создания миниатюры: {e}")
             else:
@@ -729,11 +765,14 @@ class DataMatrixInserter:
         # Извлекаем выделенную область (квадратную)
         roi = self.original_image[y1:y1+size, x1:x1+size]
         
-        # Создаем DataMatrix без наложения (чистый код)
-        dm_image = self.create_datamatrix_binary(self.current_data, size, self.rotation_angle.get())
+        # Для корреляции используем обрезанную версию (как на изображении)
+        dm_trimmed = self.create_trimmed_datamatrix_for_correlation(self.current_data, self.rotation_angle.get())
         
-        if dm_image is None:
+        if dm_trimmed is None:
             return 0.0
+            
+        # Изменяем размер до размера ROI
+        dm_resized = dm_trimmed.resize((size, size), Image.Resampling.NEAREST)
             
         # Конвертируем ROI в оттенки серого
         if len(roi.shape) == 3:
@@ -743,7 +782,12 @@ class DataMatrixInserter:
             
         # Дискретизация изображений для улучшения корреляции
         roi_binary = self.discretize_image(roi_gray)
-        dm_binary = self.discretize_image(np.array(dm_image.convert('L')))
+        dm_binary = np.array(dm_resized.convert('L'))
+        dm_binary = self.discretize_image(dm_binary)
+        
+        # Убеждаемся, что изображения одинакового размера
+        if roi_binary.shape != dm_binary.shape:
+            dm_binary = cv2.resize(dm_binary, (roi_binary.shape[1], roi_binary.shape[0]))
         
         # Вычисляем нормализованную корреляцию
         correlation = self.normalized_correlation(roi_binary, dm_binary)
@@ -782,49 +826,6 @@ class DataMatrixInserter:
         correlation = (correlation + 1) / 2
         return max(0, min(1, correlation))
     
-    def create_datamatrix_binary(self, data, size, angle=0):
-        """Создание бинарного DataMatrix кода для корреляции"""
-        try:
-            if not data:
-                return None
-                
-            print(f"  Создание DataMatrix для: {data[:20]}... размер {size}")
-                
-            encoded = dmtx.encode(data.encode('utf-8'))
-            
-            if hasattr(encoded, 'pixels'):
-                img = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
-                print(f"  Исходный размер DataMatrix: {encoded.width}x{encoded.height}")
-            else:
-                img = encoded[0]
-                print(f"  Исходный размер DataMatrix: {img.size}")
-            
-            img = img.convert('L')
-            
-            img_array = np.array(img)
-            binary_array = np.where(img_array < 128, 0, 255).astype(np.uint8)
-            img = Image.fromarray(binary_array, 'L')
-            
-            img = img.resize((size, size), Image.Resampling.NEAREST)
-            
-            if angle != 0:
-                img = img.rotate(angle, expand=True, 
-                                 resample=Image.Resampling.NEAREST, 
-                                 fillcolor=255)
-                
-                if img.size != (size, size):
-                    new_img = Image.new('L', (size, size), 255)
-                    offset_x = (size - img.size[0]) // 2
-                    offset_y = (size - img.size[1]) // 2
-                    new_img.paste(img, (offset_x, offset_y))
-                    img = new_img
-            
-            return img
-        except Exception as e:
-            print(f"  !!! Ошибка создания бинарного DataMatrix: {e}")
-            traceback.print_exc()
-            return None
-    
     def update_correlation_display(self):
         """Обновление отображения информации о корреляции"""
         percent = int(self.correlation_value * 100)
@@ -842,51 +843,261 @@ class DataMatrixInserter:
             self.status_var.set(f"Текущее: {self.current_data[:30]}... {status_text}")
         else:
             self.status_var.set(status_text)
-        
-    def set_rotation(self, angle):
-        """Установка угла поворота"""
-        self.rotation_angle.set(angle)
-        self.on_rotation_changed()
-        
-    def update_transparency_label(self, *args):
-        """Обновление метки прозрачности"""
-        percent = int(self.transparency.get() * 100)
-        self.transparency_label.config(text=f"{percent}%")
-        
-    def on_data_changed(self, event=None):
-        """Обработка изменения данных в поле ввода"""
+    
+    def create_trimmed_datamatrix_for_correlation(self, data, angle=0):
+        """Создание обрезанного DataMatrix для корреляции (черный на белом фоне)"""
+        try:
+            if not data:
+                return None
+                
+            encoded = dmtx.encode(data.encode('utf-8'))
+            
+            if hasattr(encoded, 'pixels'):
+                img = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
+            else:
+                img = encoded[0]
+            
+            # Конвертируем в оттенки серого
+            img = img.convert('L')
+            
+            # Получаем пиксели
+            img_array = np.array(img)
+            
+            # Создаем бинарное изображение (черный на белом)
+            is_black = img_array < 128
+            binary_array = np.ones_like(img_array) * 255  # Белый фон
+            binary_array[is_black] = 0  # Черные пиксели
+            
+            img = Image.fromarray(binary_array, 'L')
+            
+            # Находим bounding box черных пикселей
+            if np.any(is_black):
+                coords = np.argwhere(is_black)
+                y_min, x_min = coords.min(axis=0)
+                y_max, x_max = coords.max(axis=0)
+                
+                # Добавляем небольшой отступ (1 пиксель)
+                y_min = max(0, y_min - 1)
+                x_min = max(0, x_min - 1)
+                y_max = min(img_array.shape[0] - 1, y_max + 1)
+                x_max = min(img_array.shape[1] - 1, x_max + 1)
+                
+                # Обрезаем изображение
+                img = img.crop((x_min, y_min, x_max + 1, y_max + 1))
+            
+            # Поворот
+            if angle != 0:
+                img = img.rotate(angle, expand=True, 
+                                 resample=Image.Resampling.NEAREST, 
+                                 fillcolor=255)  # Заливаем белым
+                
+                # После поворота может измениться размер, но мы оставим как есть
+                # Позже при изменении размера под ROI это будет учтено
+            
+            return img
+            
+        except Exception as e:
+            print(f"Ошибка создания обрезанного DataMatrix для корреляции: {e}")
+            traceback.print_exc()
+            return None
+    
+    def create_datamatrix_trimmed(self, data, size):
+        """Создание обрезанного DataMatrix для предпросмотра"""
+        try:
+            if not data:
+                return None
+                
+            encoded = dmtx.encode(data.encode('utf-8'))
+            
+            if hasattr(encoded, 'pixels'):
+                img = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
+            else:
+                img = encoded[0]
+            
+            # Конвертируем в оттенки серого
+            img = img.convert('L')
+            
+            # Получаем пиксели
+            img_array = np.array(img)
+            
+            # Находим bounding box черных пикселей
+            is_black = img_array < 128
+            if np.any(is_black):
+                coords = np.argwhere(is_black)
+                y_min, x_min = coords.min(axis=0)
+                y_max, x_max = coords.max(axis=0)
+                
+                # Добавляем небольшой отступ (1 пиксель)
+                y_min = max(0, y_min - 1)
+                x_min = max(0, x_min - 1)
+                y_max = min(img_array.shape[0] - 1, y_max + 1)
+                x_max = min(img_array.shape[1] - 1, x_max + 1)
+                
+                # Обрезаем изображение
+                img = img.crop((x_min, y_min, x_max + 1, y_max + 1))
+            
+            # Инвертируем для лучшего вида на белом фоне
+            img_array = np.array(img)
+            img_array = 255 - img_array  # Инвертируем
+            
+            img = Image.fromarray(img_array, 'L')
+            
+            # Изменяем размер
+            img = img.resize((size, size), Image.Resampling.NEAREST)
+            
+            return img
+        except Exception as e:
+            print(f"Ошибка создания обрезанного preview: {e}")
+            return None
+    
+    def create_datamatrix_for_drawing(self, data, size):
+        """Создание DataMatrix для отрисовки на изображении (обрезанный, с прозрачностью)"""
+        try:
+            if not data:
+                return None
+                
+            encoded = dmtx.encode(data.encode('utf-8'))
+            
+            if hasattr(encoded, 'pixels'):
+                img = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
+            else:
+                img = encoded[0]
+            
+            # Конвертируем в RGBA
+            img = img.convert('RGBA')
+            
+            # Получаем пиксели
+            pixels = np.array(img)
+            
+            # Находим черные пиксели
+            is_black = np.all(pixels[:, :, :3] < [50, 50, 50], axis=2)
+            
+            # Находим bounding box черных пикселей
+            if np.any(is_black):
+                coords = np.argwhere(is_black)
+                y_min, x_min = coords.min(axis=0)
+                y_max, x_max = coords.max(axis=0)
+                
+                # Добавляем небольшой отступ (1 пиксель) для краев
+                y_min = max(0, y_min - 1)
+                x_min = max(0, x_min - 1)
+                y_max = min(pixels.shape[0] - 1, y_max + 1)
+                x_max = min(pixels.shape[1] - 1, x_max + 1)
+                
+                # Обрезаем изображение
+                img = img.crop((x_min, y_min, x_max + 1, y_max + 1))
+                print(f"  DataMatrix обрезан до размера: {img.size}")
+            
+            # Конвертируем обрезанное изображение в массив
+            pixels = np.array(img)
+            
+            # Создаем новое RGBA изображение (полностью прозрачное)
+            new_pixels = np.zeros((pixels.shape[0], pixels.shape[1], 4), dtype=np.uint8)
+            
+            # Черные пиксели становятся черными с заданной прозрачностью
+            is_black = np.all(pixels[:, :, :3] < [50, 50, 50], axis=2)
+            new_pixels[is_black, :3] = [0, 0, 0]  # Черный цвет
+            new_pixels[is_black, 3] = int(255 * self.transparency.get())  # Прозрачность
+            
+            img = Image.fromarray(new_pixels, 'RGBA')
+            
+            # Изменяем размер точно под указанный размер
+            img = img.resize((size, size), Image.Resampling.NEAREST)
+            
+            # Поворот (без расширения, чтобы сохранить размер)
+            if self.rotation_angle.get() != 0:
+                img = img.rotate(self.rotation_angle.get(), expand=False,
+                                 resample=Image.Resampling.NEAREST)
+            
+            return img
+            
+        except Exception as e:
+            print(f"Ошибка создания DataMatrix для отрисовки: {e}")
+            traceback.print_exc()
+            return None
+    
+    def create_current_datamatrix(self):
+        """Создание текущего DataMatrix для предпросмотра"""
         data = self.input_data.get().strip()
         if data:
-            self.current_data = data
-            self.last_valid_data = data
-            self.create_current_datamatrix()
-            self.update_live_preview()
-            self.calculate_correlation()
+            self.current_dm_image = self.create_datamatrix_trimmed(data, 180)
+            if self.current_dm_image:
+                dm_tk = ImageTk.PhotoImage(self.current_dm_image)
+                self.preview_canvas.delete("all")
+                self.preview_canvas.create_image(100, 100, image=dm_tk)
+                self.preview_canvas.image = dm_tk
+                
+                self.info_label.config(
+                    text=f"Угол: {self.rotation_angle.get()}° | "
+                         f"Прозрачность: {int(self.transparency.get()*100)}%"
+                )
     
-    def on_rotation_changed(self, event=None):
-        """Обработка изменения угла поворота"""
-        self.update_live_preview()
-        if self.current_data:
-            self.calculate_correlation()
-    
-    def on_transparency_changed(self, event=None):
-        """Обработка изменения прозрачности"""
-        self.update_live_preview()
+    def update_live_preview(self):
+        """Обновление предпросмотра с наложением на изображение (без отступов)"""
+        if self.original_image is None or self.rect_coords is None:
+            return
+            
+        if not self.current_data:
+            return
+            
+        x1, y1, x2, y2 = self.rect_coords
+        width = x2 - x1
+        height = y2 - y1
+        size = min(width, height)  # Для DataMatrix используем минимальный размер (квадрат)
+        
+        if size <= 0:
+            return
+            
+        self.preview_image = self.original_image.copy()
+        
+        # Создаем обрезанный DataMatrix для отрисовки
+        dm_image = self.create_datamatrix_for_drawing(self.current_data, size)
+        
+        if dm_image:
+            if self.preview_image.shape[2] == 3:
+                preview_rgba = np.dstack([self.preview_image, 
+                                         np.full((self.preview_image.shape[0], 
+                                                 self.preview_image.shape[1]), 255, dtype=np.uint8)])
+            else:
+                preview_rgba = self.preview_image
+            
+            dm_array = np.array(dm_image)
+            
+            # Вычисляем смещение для центрирования в прямоугольной области
+            x_offset = x1 + (width - size) // 2
+            y_offset = y1 + (height - size) // 2
+            
+            # Рисуем DataMatrix в центре выделенной области
+            for c in range(3):  # Только RGB каналы
+                alpha = dm_array[:, :, 3] / 255.0
+                preview_rgba[y_offset:y_offset+size, x_offset:x_offset+size, c] = \
+                    (preview_rgba[y_offset:y_offset+size, x_offset:x_offset+size, c] * (1 - alpha) + 
+                     dm_array[:, :, c] * alpha).astype(np.uint8)
+            
+            self.preview_image = preview_rgba[:, :, :3]
+            
+            self.refresh_display()
+            self.status_var.set(f"Предпросмотр обновлен: угол {self.rotation_angle.get()}°, "
+                               f"прозрачность {int(self.transparency.get()*100)}%")
     
     # Методы для зума
     def zoom_in(self):
+        """Увеличение масштаба"""
         self.zoom_level = min(self.max_zoom, self.zoom_level + self.zoom_step)
         self.update_zoom_display()
         
     def zoom_out(self):
+        """Уменьшение масштаба"""
         self.zoom_level = max(self.min_zoom, self.zoom_level - self.zoom_step)
         self.update_zoom_display()
         
     def zoom_reset(self):
+        """Сброс масштаба к 100%"""
         self.zoom_level = 1.0
         self.update_zoom_display()
         
     def zoom_fit(self):
+        """Масштабирование под размер окна"""
         if self.preview_image is not None:
             height, width = self.preview_image.shape[:2]
             canvas_width = self.canvas.winfo_width()
@@ -899,26 +1110,33 @@ class DataMatrixInserter:
                 self.update_zoom_display()
     
     def on_pan_start(self, event):
+        """Начало панорамирования"""
         self.pan_start_x = self.canvas.canvasx(event.x)
         self.pan_start_y = self.canvas.canvasy(event.y)
         self.canvas.scan_mark(event.x, event.y)
         
     def on_pan_move(self, event):
+        """Перемещение при панорамировании"""
         self.canvas.scan_dragto(event.x, event.y, gain=1)
         
     def on_mousewheel(self, event):
-        if event.state & 0x0004:
+        """Обработка колесика мыши"""
+        # Если зажат Ctrl - зумим, иначе скроллим
+        if event.state & 0x0004:  # Ctrl key
             self.on_zoom_mousewheel(event)
         else:
             self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
     
     def on_zoom_mousewheel(self, event):
+        """Зум колесиком мыши с Ctrl"""
+        # Определяем направление
         if event.delta > 0:
             self.zoom_in()
         else:
             self.zoom_out()
     
     def update_zoom_display(self):
+        """Обновление отображения с новым масштабом"""
         self.refresh_display()
         self.zoom_info.config(text=f"Масштаб: {int(self.zoom_level * 100)}%")
         
@@ -1334,117 +1552,6 @@ class DataMatrixInserter:
                 self.status_var.set(f"Данные загружены из: {file_path}")
             except Exception as e:
                 messagebox.showerror("Ошибка", f"Не удалось загрузить файл: {str(e)}")
-    
-    def create_datamatrix(self, data, size):
-        """Создание DataMatrix кода с поворотом и прозрачностью"""
-        try:
-            if not data:
-                return None
-                
-            encoded = dmtx.encode(data.encode('utf-8'))
-            
-            if hasattr(encoded, 'pixels'):
-                img = Image.frombytes('RGB', (encoded.width, encoded.height), encoded.pixels)
-            else:
-                img = encoded[0]
-            
-            img = img.convert('RGBA')
-            
-            pixels = np.array(img)
-            
-            is_black = np.all(pixels[:, :, :3] < [50, 50, 50], axis=2)
-            
-            new_pixels = np.zeros((pixels.shape[0], pixels.shape[1], 4), dtype=np.uint8)
-            
-            new_pixels[is_black, :3] = [0, 0, 0]
-            new_pixels[is_black, 3] = int(255 * self.transparency.get())
-            
-            new_pixels[~is_black, 3] = 0
-            
-            img = Image.fromarray(new_pixels, 'RGBA')
-            
-            # Изменяем размер с сохранением пропорций для прямоугольной области
-            img = img.resize((size, size), Image.Resampling.NEAREST)
-            
-            if self.rotation_angle.get() != 0:
-                img = img.rotate(self.rotation_angle.get(), expand=True, 
-                                 resample=Image.Resampling.NEAREST)
-                
-                if img.size != (size, size):
-                    new_img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-                    offset_x = (size - img.size[0]) // 2
-                    offset_y = (size - img.size[1]) // 2
-                    new_img.paste(img, (offset_x, offset_y), img)
-                    img = new_img
-            
-            return img
-        except Exception as e:
-            print(f"Ошибка создания DataMatrix: {e}")
-            return None
-    
-    def create_current_datamatrix(self):
-        """Создание текущего DataMatrix для предпросмотра"""
-        data = self.input_data.get().strip()
-        if data:
-            self.current_dm_image = self.create_datamatrix(data, 180)
-            if self.current_dm_image:
-                dm_tk = ImageTk.PhotoImage(self.current_dm_image)
-                self.preview_canvas.delete("all")
-                self.preview_canvas.create_image(100, 100, image=dm_tk)
-                self.preview_canvas.image = dm_tk
-                
-                self.info_label.config(
-                    text=f"Угол: {self.rotation_angle.get()}° | "
-                         f"Прозрачность: {int(self.transparency.get()*100)}%"
-                )
-    
-    def update_live_preview(self):
-        """Обновление предпросмотра с наложением на изображение"""
-        if self.original_image is None or self.rect_coords is None:
-            return
-            
-        if not self.current_data:
-            return
-            
-        x1, y1, x2, y2 = self.rect_coords
-        width = x2 - x1
-        height = y2 - y1
-        size = min(width, height)  # Для DataMatrix используем минимальный размер (квадрат)
-        
-        if size <= 0:
-            return
-            
-        self.preview_image = self.original_image.copy()
-        
-        # Создаем DataMatrix квадратного размера
-        dm_image = self.create_datamatrix(self.current_data, size)
-        
-        if dm_image:
-            if self.preview_image.shape[2] == 3:
-                preview_rgba = np.dstack([self.preview_image, 
-                                         np.full((self.preview_image.shape[0], 
-                                                 self.preview_image.shape[1]), 255, dtype=np.uint8)])
-            else:
-                preview_rgba = self.preview_image
-            
-            dm_array = np.array(dm_image)
-            
-            # Центрируем DataMatrix в прямоугольной области
-            x_offset = x1 + (width - size) // 2
-            y_offset = y1 + (height - size) // 2
-            
-            # Наложение с учетом прозрачности
-            for c in range(3):
-                alpha = dm_array[:, :, 3] / 255.0
-                preview_rgba[y_offset:y_offset+size, x_offset:x_offset+size, c] = \
-                    (preview_rgba[y_offset:y_offset+size, x_offset:x_offset+size, c] * (1 - alpha) + 
-                     dm_array[:, :, c] * alpha).astype(np.uint8)
-            
-            self.preview_image = preview_rgba[:, :, :3]
-            
-            self.refresh_display()
-            self.status_var.set(f"Предпросмотр обновлен: угол {self.rotation_angle.get()}°, "
-                               f"прозрачность {int(self.transparency.get()*100)}%")
 
 def main():
     root = tk.Tk()
